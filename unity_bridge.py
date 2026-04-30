@@ -140,6 +140,19 @@ class VIEW3D_PT_fbx_unity_export(Panel):
         box.prop(scene, "fbx_bundle_unity_filename", text="Filename")
         box.prop(scene, "fbx_bundle_unity_selection_only", text="Selected Only")
 
+        # Scale info
+        from . import scale_check
+
+        if scene.fbx_bundle_unity_selection_only:
+            objects = context.selected_objects
+        else:
+            objects = list(context.scene.objects)
+
+        if objects:
+            dims = scale_check.get_dimensions_string(objects)
+            box = layout.box()
+            box.label(text=f"Dimensions: {dims}", icon="CUBE")
+
         # Export button
         layout.separator()
         row = layout.row(align=True)

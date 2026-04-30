@@ -3,8 +3,10 @@ import shutil
 
 import bpy
 
+from . import texture_processing
 
-def remap_image_paths(objects, tex_dir):
+
+def remap_image_paths(objects, tex_dir, preserve_structure=False):
     """
     Temporarily remap image filepaths so the FBX exporter writes paths
     pointing to the texture folder. Returns a dict of {image: original_filepath}
@@ -28,8 +30,13 @@ def remap_image_paths(objects, tex_dir):
             safe_name = bpy.path.clean_name(img.name)
             img.filepath_raw = os.path.join(tex_dir, f"{safe_name}{ext}")
         elif img.filepath:
-            filename = os.path.basename(bpy.path.abspath(img.filepath))
-            img.filepath_raw = os.path.join(tex_dir, filename)
+            abs_path = bpy.path.abspath(img.filepath)
+            if preserve_structure:
+                rel = _get_relative_texture_path(abs_path)
+                img.filepath_raw = os.path.join(tex_dir, rel)
+            else:
+                filename = os.path.basename(abs_path)
+                img.filepath_raw = os.path.join(tex_dir, filename)
 
     return original_paths
 
@@ -40,27 +47,44 @@ def restore_image_paths(original_paths):
         img.filepath_raw = path
 
 
-def collect_and_copy_textures(objects, destination_dir):
+def collect_and_copy_textures(
+    objects, destination_dir, preserve_structure=False, processing_settings=None
+):
     """
     Collect all texture image files from materials on the given objects
     and copy them to the destination directory.
 
+    Args:
+        objects: Blender objects to collect textures from
+        destination_dir: Root texture output directory
+        preserve_structure: If True, maintain relative folder hierarchy
+        processing_settings: Dict with texture processing options (convert_format,
+                           max_resolution, jpeg_quality). None for straight copy.
+
     Returns the number of textures copied.
     """
-    image_paths = _gather_image_paths(objects)
+    image_data = _gather_image_data(objects)
 
-    if not image_paths:
+    if not image_data:
         return 0
 
     os.makedirs(destination_dir, exist_ok=True)
 
     copied = 0
-    for src_path in image_paths:
+    for src_path, is_packed in image_data:
         if not os.path.isfile(src_path):
             continue
 
-        filename = os.path.basename(src_path)
-        dst_path = os.path.join(destination_dir, filename)
+        # Determine destination path
+        if preserve_structure and not is_packed:
+            rel_path = _get_relative_texture_path(src_path)
+            dst_path = os.path.join(destination_dir, rel_path)
+        else:
+            dst_path = os.path.join(destination_dir, os.path.basename(src_path))
+
+        # Create subdirectories if preserving structure
+        dst_dir = os.path.dirname(dst_path)
+        os.makedirs(dst_dir, exist_ok=True)
 
         # Skip if source and destination are the same file
         try:
@@ -70,16 +94,40 @@ def collect_and_copy_textures(objects, destination_dir):
         except (OSError, ValueError):
             pass
 
-        shutil.copy2(src_path, dst_path)
+        # Apply texture processing or straight copy
+        if processing_settings:
+            texture_processing.process_textures(src_path, dst_path, processing_settings)
+        else:
+            shutil.copy2(src_path, dst_path)
+
         copied += 1
 
     return copied
 
 
-def _gather_image_paths(objects):
+def _get_relative_texture_path(abs_path):
     """
-    Walk all materials on the given objects and collect absolute paths
-    to all image textures used in shader node trees.
+    Get a relative path for preserving folder structure.
+    Uses the blend file location as the base, or falls back to filename only.
+    """
+    blend_path = bpy.data.filepath
+    if blend_path:
+        blend_dir = os.path.dirname(blend_path)
+        try:
+            rel = os.path.relpath(abs_path, blend_dir)
+            # Only use relative path if it doesn't go too far up
+            if not rel.startswith("..\\..\\..") and not rel.startswith("../../../"):
+                return rel
+        except ValueError:
+            pass
+
+    return os.path.basename(abs_path)
+
+
+def _gather_image_data(objects):
+    """
+    Walk all materials on the given objects and collect (absolute_path, is_packed)
+    tuples for all image textures used in shader node trees.
     """
     images = set()
 
@@ -92,20 +140,18 @@ def _gather_image_paths(objects):
                 continue
             _collect_images_from_material(mat, images)
 
-    # Resolve to absolute paths, skip packed/generated images
-    paths = set()
+    results = set()
     for img in images:
         if img.packed_file:
-            # Save packed image to a temp location so it can be copied
             path = _save_packed_image(img)
             if path:
-                paths.add(path)
+                results.add((path, True))
         elif img.filepath:
             abs_path = bpy.path.abspath(img.filepath)
             if abs_path and os.path.isfile(abs_path):
-                paths.add(abs_path)
+                results.add((abs_path, False))
 
-    return paths
+    return results
 
 
 def _collect_images_from_material(material, images):

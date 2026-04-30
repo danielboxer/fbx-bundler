@@ -6,11 +6,12 @@ from bpy.props import (
     CollectionProperty,
     EnumProperty,
     FloatProperty,
+    IntProperty,
     StringProperty,
 )
 from bpy_extras.io_utils import ExportHelper
 
-from . import textures
+from . import scale_check, textures
 
 
 class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
@@ -40,6 +41,57 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         name="Texture Folder",
         description="Name of the folder to copy textures into (relative to FBX location)",
         default="textures",
+    )
+
+    preserve_texture_structure: BoolProperty(
+        name="Preserve Folder Structure",
+        description="Keep relative folder hierarchy for textures instead of flattening into one folder",
+        default=False,
+    )
+
+    # --- Texture Processing ---
+
+    convert_textures: BoolProperty(
+        name="Convert Textures",
+        description="Convert textures to a different format when copying",
+        default=False,
+    )
+
+    convert_format: EnumProperty(
+        name="Format",
+        description="Target format for texture conversion",
+        items=[
+            ("ORIGINAL", "Keep Original", "Don't convert, keep original format"),
+            ("PNG", "PNG", "Convert to PNG (lossless, supports alpha)"),
+            ("JPEG", "JPEG", "Convert to JPEG (lossy, smaller, no alpha)"),
+            ("TARGA", "TGA", "Convert to Targa"),
+            ("WEBP", "WebP", "Convert to WebP (modern, small)"),
+        ],
+        default="ORIGINAL",
+    )
+
+    max_texture_resolution: IntProperty(
+        name="Max Resolution",
+        description="Maximum texture dimension in pixels (0 = no limit)",
+        min=0,
+        max=16384,
+        default=0,
+    )
+
+    jpeg_quality: IntProperty(
+        name="JPEG Quality",
+        description="Quality for JPEG conversion (1-100)",
+        min=1,
+        max=100,
+        default=90,
+    )
+
+    # --- Scale Check ---
+
+    verify_scale: BoolProperty(
+        name="Verify Scale",
+        description="Check for common scale issues before export and show warnings",
+        default=True,
     )
 
     # --- Preset Selection ---
@@ -395,6 +447,19 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         box.prop(self, "export_textures")
         if self.export_textures:
             box.prop(self, "texture_folder_name")
+            box.prop(self, "preserve_texture_structure")
+            box.separator()
+            box.prop(self, "convert_textures")
+            if self.convert_textures:
+                box.prop(self, "convert_format")
+                box.prop(self, "max_texture_resolution")
+                if self.convert_format == "JPEG":
+                    box.prop(self, "jpeg_quality")
+
+        # Scale verification
+        box = layout.box()
+        box.label(text="Validation", icon="CHECKMARK")
+        box.prop(self, "verify_scale")
 
         layout.separator()
 
@@ -463,12 +528,18 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
 
         objects = self._get_export_objects(context)
 
+        # Scale verification
+        if self.verify_scale:
+            scale_check.check_scale(objects, self.global_scale, self.report)
+
         # When bundling textures, remap image paths to the texture folder
         # before export so the FBX contains correct relative references
         original_paths = {}
         if self.export_textures:
             tex_dir = os.path.join(export_dir, self.texture_folder_name)
-            original_paths = textures.remap_image_paths(objects, tex_dir)
+            original_paths = textures.remap_image_paths(
+                objects, tex_dir, self.preserve_texture_structure
+            )
 
         # Use relative path mode when bundling so the FBX stores
         # paths like "textures/albedo.png"
@@ -527,7 +598,19 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         # Copy textures to the companion folder
         if self.export_textures:
             tex_dir = os.path.join(export_dir, self.texture_folder_name)
-            copied = textures.collect_and_copy_textures(objects, tex_dir)
+
+            # Build processing settings
+            processing = None
+            if self.convert_textures:
+                processing = {
+                    "convert_format": self.convert_format,
+                    "max_resolution": self.max_texture_resolution,
+                    "jpeg_quality": self.jpeg_quality,
+                }
+
+            copied = textures.collect_and_copy_textures(
+                objects, tex_dir, self.preserve_texture_structure, processing
+            )
             if copied > 0:
                 self.report({"INFO"}, f"Copied {copied} texture(s) to: {tex_dir}")
             else:
