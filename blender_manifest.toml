@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+
+id = "fbx_bundle_export"
+version = "1.0.0"
+name = "FBX Bundle Export"
+tagline = "Export FBX with textures bundled in a companion folder"
+maintainer = "dleeb"
+type = "add-on"
+
+tags = ["Import-Export"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Export FBX and copy texture files to disk"
+
+[build]
+paths_exclude_pattern = ["__pycache__/", ".git/", "*.zip"]
