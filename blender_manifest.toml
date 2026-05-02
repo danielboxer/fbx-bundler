@@ -1,12 +1,15 @@
+# https://developer.blender.org/docs/features/extensions/schema/1.0.0/
 schema_version = "1.0.0"
 
-id = "fbx_bundle_export"
-version = "1.0.0"
-name = "FBX Bundle Export"
+id = "fbx_bundler"
+version = "0.1.0"
+name = "FBX Bundler"
 tagline = "Export FBX with textures bundled in a companion folder"
-maintainer = "dleeb"
+maintainer = "Daniel Boxer <dani3lb0x3r@gmail.com>"
 type = "add-on"
+# website = ""
 
+# https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
 tags = ["Import-Export"]
 
 blender_version_min = "4.2.0"

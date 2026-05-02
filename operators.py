@@ -3,7 +3,6 @@ import os
 import bpy
 from bpy.props import (
     BoolProperty,
-    CollectionProperty,
     EnumProperty,
     FloatProperty,
     IntProperty,
@@ -424,6 +423,40 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         default=True,
     )
 
+    # --- Bundle Batch Export ---
+
+    batch_by: EnumProperty(
+        name="Batch By",
+        description="Split export into separate FBX files, one per object or collection (OFF exports everything to one file)",
+        items=[
+            ("OFF", "Off", "Export everything to a single FBX file"),
+            (
+                "OBJECT",
+                "Each Object",
+                "Export each selected mesh/armature as its own FBX",
+            ),
+            ("COLLECTION", "Each Collection", "Export each collection as its own FBX"),
+            (
+                "TOP_PARENT",
+                "Each Top-Level Parent",
+                "Export each root parent hierarchy as its own FBX",
+            ),
+        ],
+        default="OFF",
+    )
+
+    naming_convention: EnumProperty(
+        name="Naming",
+        description="How to name exported FBX files in batch mode",
+        items=[
+            ("ORIGINAL", "Original Name", "Use the object/collection name as-is"),
+            ("PASCAL", "PascalCase", "Convert to PascalCase"),
+            ("SNAKE", "snake_case", "Convert to snake_case"),
+            ("KEBAB", "kebab-case", "Convert to kebab-case"),
+        ],
+        default="ORIGINAL",
+    )
+
     def _apply_preset(self):
         """Apply settings from the selected preset."""
         from . import presets
@@ -440,6 +473,13 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         # Preset selector at top
         layout.prop(self, "preset_enum")
         layout.separator()
+
+        # Batch export split mode
+        box = layout.box()
+        box.label(text="Batch Export", icon="FILE_REFRESH")
+        box.prop(self, "batch_by")
+        if self.batch_by != "OFF":
+            box.prop(self, "naming_convention")
 
         # Texture bundling
         box = layout.box()
@@ -463,14 +503,15 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
 
         layout.separator()
 
-        # Include
-        box = layout.box()
-        box.label(text="Include", icon="OUTLINER")
-        box.prop(self, "use_selection")
-        box.prop(self, "use_visible")
-        box.prop(self, "use_active_collection")
-        col = box.column()
-        col.prop(self, "object_types")
+        # Include (hidden in batch mode, selection drives what to batch)
+        if self.batch_by == "OFF":
+            box = layout.box()
+            box.label(text="Include", icon="OUTLINER")
+            box.prop(self, "use_selection")
+            box.prop(self, "use_visible")
+            box.prop(self, "use_active_collection")
+            col = box.column()
+            col.prop(self, "object_types")
 
         # Transform
         box = layout.box()
@@ -513,16 +554,22 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             box.prop(self, "bake_anim_step")
             box.prop(self, "bake_anim_simplify_factor")
 
-        # Path
-        box = layout.box()
-        box.label(text="Path", icon="FILE_FOLDER")
-        box.prop(self, "path_mode")
-        box.prop(self, "embed_textures")
-        box.prop(self, "batch_mode")
-        if self.batch_mode != "OFF":
-            box.prop(self, "use_batch_own_dir")
+        # Path (hidden in batch mode, path settings are set automatically)
+        if self.batch_by == "OFF":
+            box = layout.box()
+            box.label(text="Path", icon="FILE_FOLDER")
+            box.prop(self, "path_mode")
+            box.prop(self, "embed_textures")
+            box.prop(self, "batch_mode")
+            if self.batch_mode != "OFF":
+                box.prop(self, "use_batch_own_dir")
 
     def execute(self, context):
+        if self.batch_by != "OFF":
+            return self._execute_batch(context)
+        return self._execute_single(context)
+
+    def _execute_single(self, context):
         filepath = self.filepath
         export_dir = os.path.dirname(filepath)
 
@@ -618,6 +665,142 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
 
         return {"FINISHED"}
 
+    def _execute_batch(self, context):
+        from . import naming
+
+        # Use the filepath directly as the output directory in batch mode
+        output_dir = self.filepath
+        if not output_dir or not os.path.isdir(output_dir):
+            output_dir = os.path.dirname(self.filepath)
+
+        if not output_dir or not os.path.isdir(output_dir):
+            self.report({"ERROR"}, "Invalid output directory")
+            return {"CANCELLED"}
+
+        groups = self._get_batch_groups(context)
+        if not groups:
+            self.report({"ERROR"}, "Nothing to export")
+            return {"CANCELLED"}
+
+        # Build processing settings for texture conversion
+        processing = None
+        if self.convert_textures:
+            processing = {
+                "convert_format": self.convert_format,
+                "max_resolution": self.max_texture_resolution,
+                "jpeg_quality": self.jpeg_quality,
+            }
+
+        exported = 0
+        for group_name, objects in groups.items():
+            file_name = naming.apply_convention(group_name, self.naming_convention)
+            filepath = os.path.join(output_dir, f"{file_name}.fbx")
+            tex_dir = os.path.join(output_dir, self.texture_folder_name)
+
+            # Select only this group's objects for the export
+            bpy.ops.object.select_all(action="DESELECT")
+            for obj in objects:
+                obj.select_set(True)
+
+            # Scale verification per group
+            if self.verify_scale:
+                scale_check.check_scale(objects, self.global_scale, self.report)
+
+            # Remap image paths to the texture folder before export so the
+            # FBX contains correct relative references
+            original_paths = {}
+            if self.export_textures:
+                original_paths = textures.remap_image_paths(
+                    objects, tex_dir, self.preserve_texture_structure
+                )
+
+            kwargs = {
+                "filepath": filepath,
+                "use_selection": True,
+                "global_scale": self.global_scale,
+                "apply_scale_options": self.apply_scale_options,
+                "axis_forward": self.axis_forward,
+                "axis_up": self.axis_up,
+                "apply_unit_scale": self.apply_unit_scale,
+                "use_space_transform": self.use_space_transform,
+                "mesh_smooth_type": self.mesh_smooth_type,
+                "use_subsurf": self.use_subsurf,
+                "use_mesh_modifiers": self.use_mesh_modifiers,
+                "use_mesh_edges": self.use_mesh_edges,
+                "use_triangles": self.use_triangles,
+                "use_tspace": self.use_tspace,
+                "colors_type": self.colors_type,
+                "primary_bone_axis": self.primary_bone_axis,
+                "secondary_bone_axis": self.secondary_bone_axis,
+                "use_armature_deform_only": self.use_armature_deform_only,
+                "add_leaf_bones": self.add_leaf_bones,
+                "bake_anim": self.bake_anim,
+                "bake_anim_use_all_bones": self.bake_anim_use_all_bones,
+                "bake_anim_use_nla_strips": self.bake_anim_use_nla_strips,
+                "bake_anim_use_all_actions": self.bake_anim_use_all_actions,
+                "bake_anim_force_startend_keying": self.bake_anim_force_startend_keying,
+                "bake_anim_step": self.bake_anim_step,
+                "bake_anim_simplify_factor": self.bake_anim_simplify_factor,
+                # Force relative paths for texture bundling, disable native batch mode
+                "path_mode": "RELATIVE" if self.export_textures else "AUTO",
+                "embed_textures": False,
+                "batch_mode": "OFF",
+            }
+
+            result = bpy.ops.export_scene.fbx(**kwargs)
+
+            # Always restore original image paths regardless of export result
+            if original_paths:
+                textures.restore_image_paths(original_paths)
+
+            if "FINISHED" in result:
+                exported += 1
+
+                # Copy textures to the companion folder for this group
+                if self.export_textures:
+                    textures.collect_and_copy_textures(
+                        objects, tex_dir, self.preserve_texture_structure, processing
+                    )
+
+        self.report({"INFO"}, f"Batch exported {exported} FBX file(s) to: {output_dir}")
+        return {"FINISHED"}
+
+    def _get_batch_groups(self, context):
+        """Split selected objects into named groups for batch export."""
+        selected = context.selected_objects
+        if not selected:
+            return {}
+
+        groups = {}
+
+        if self.batch_by == "OBJECT":
+            for obj in selected:
+                if obj.type in {"MESH", "ARMATURE"}:
+                    groups[obj.name] = [obj]
+                    # Include armature's mesh children so the rig exports with its skin
+                    if obj.type == "ARMATURE":
+                        groups[obj.name].extend(
+                            [c for c in obj.children if c.type == "MESH"]
+                        )
+
+        elif self.batch_by == "COLLECTION":
+            for col in bpy.data.collections:
+                col_objects = [o for o in selected if o.name in col.objects]
+                if col_objects:
+                    groups[col.name] = col_objects
+
+        elif self.batch_by == "TOP_PARENT":
+            for obj in selected:
+                root = obj
+                while root.parent and root.parent in selected:
+                    root = root.parent
+                if root.name not in groups:
+                    groups[root.name] = []
+                if obj not in groups[root.name]:
+                    groups[root.name].append(obj)
+
+        return groups
+
     def _get_export_objects(self, context):
         """Determine which objects were exported based on current filter settings."""
         if self.use_selection:
@@ -645,5 +828,12 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         return [o for o in objects if o.type in allowed_types]
 
     def invoke(self, context, event):
+        if self.batch_by != "OFF":
+            # Switch to directory picker mode for batch export
+            self.filename_ext = ""
+            if self.filepath and not os.path.isdir(self.filepath):
+                self.filepath = os.path.dirname(self.filepath)
+        else:
+            self.filename_ext = ".fbx"
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
