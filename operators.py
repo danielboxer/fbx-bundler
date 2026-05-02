@@ -470,99 +470,127 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        # Preset selector at top
+        # Preset selector at top (always visible)
         layout.prop(self, "preset_enum")
-        layout.separator()
+
+        # Always-visible selection shortcut (used frequently)
+        if self.batch_by == "OFF":
+            row = layout.row(align=True)
+            row.prop(self, "use_selection", toggle=True)
+            row.prop(self, "use_visible", toggle=True)
+            row.prop(self, "use_active_collection", toggle=True)
 
         # Batch export split mode
-        box = layout.box()
-        box.label(text="Batch Export", icon="FILE_REFRESH")
-        box.prop(self, "batch_by")
-        if self.batch_by != "OFF":
-            box.prop(self, "naming_convention")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_batch", default_closed=False
+        )
+        header.label(text="Batch Export")
+        if body:
+            body.prop(self, "batch_by")
+            if self.batch_by != "OFF":
+                body.prop(self, "naming_convention")
 
         # Texture bundling
-        box = layout.box()
-        box.label(text="Texture Bundling", icon="TEXTURE")
-        box.prop(self, "export_textures")
-        if self.export_textures:
-            box.prop(self, "texture_folder_name")
-            box.prop(self, "preserve_texture_structure")
-            box.separator()
-            box.prop(self, "convert_textures")
-            if self.convert_textures:
-                box.prop(self, "convert_format")
-                box.prop(self, "max_texture_resolution")
-                if self.convert_format == "JPEG":
-                    box.prop(self, "jpeg_quality")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_textures", default_closed=False
+        )
+        header.label(text="Texture Bundling")
+        if body:
+            body.prop(self, "export_textures")
+            if self.export_textures:
+                body.prop(self, "texture_folder_name")
+                body.prop(self, "preserve_texture_structure")
+                body.separator()
+                body.prop(self, "convert_textures")
+                if self.convert_textures:
+                    body.prop(self, "convert_format")
+                    body.prop(self, "max_texture_resolution")
+                    if self.convert_format == "JPEG":
+                        body.prop(self, "jpeg_quality")
 
         # Scale verification
-        box = layout.box()
-        box.label(text="Validation", icon="CHECKMARK")
-        box.prop(self, "verify_scale")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_validation", default_closed=False
+        )
+        header.label(text="Validation")
+        if body:
+            body.prop(self, "verify_scale")
 
         layout.separator()
+        layout.label(text="FBX Settings", icon="FILE")
 
-        # Include (hidden in batch mode, selection drives what to batch)
+        # Include: only object_types remains here (selection moved to always-visible row above)
         if self.batch_by == "OFF":
-            box = layout.box()
-            box.label(text="Include", icon="OUTLINER")
-            box.prop(self, "use_selection")
-            box.prop(self, "use_visible")
-            box.prop(self, "use_active_collection")
-            col = box.column()
-            col.prop(self, "object_types")
+            header, body = layout.panel(
+                "export_scene_fbx_bundle_include", default_closed=True
+            )
+            header.label(text="Include")
+            if body:
+                col = body.column()
+                col.prop(self, "object_types")
 
         # Transform
-        box = layout.box()
-        box.label(text="Transform", icon="ORIENTATION_GLOBAL")
-        box.prop(self, "global_scale")
-        box.prop(self, "apply_scale_options")
-        box.prop(self, "axis_forward")
-        box.prop(self, "axis_up")
-        box.prop(self, "apply_unit_scale")
-        box.prop(self, "use_space_transform")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_transform", default_closed=True
+        )
+        header.label(text="Transform")
+        if body:
+            body.prop(self, "global_scale")
+            body.prop(self, "apply_scale_options")
+            body.prop(self, "axis_forward")
+            body.prop(self, "axis_up")
+            body.prop(self, "apply_unit_scale")
+            body.prop(self, "use_space_transform")
 
         # Geometry
-        box = layout.box()
-        box.label(text="Geometry", icon="MESH_DATA")
-        box.prop(self, "mesh_smooth_type")
-        box.prop(self, "use_subsurf")
-        box.prop(self, "use_mesh_modifiers")
-        box.prop(self, "use_mesh_edges")
-        box.prop(self, "use_triangles")
-        box.prop(self, "use_tspace")
-        box.prop(self, "colors_type")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_geometry", default_closed=True
+        )
+        header.label(text="Geometry")
+        if body:
+            body.prop(self, "mesh_smooth_type")
+            body.prop(self, "use_subsurf")
+            body.prop(self, "use_mesh_modifiers")
+            body.prop(self, "use_mesh_edges")
+            body.prop(self, "use_triangles")
+            body.prop(self, "use_tspace")
+            body.prop(self, "colors_type")
 
         # Armature
-        box = layout.box()
-        box.label(text="Armature", icon="ARMATURE_DATA")
-        box.prop(self, "primary_bone_axis")
-        box.prop(self, "secondary_bone_axis")
-        box.prop(self, "use_armature_deform_only")
-        box.prop(self, "add_leaf_bones")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_armature", default_closed=True
+        )
+        header.label(text="Armature")
+        if body:
+            body.prop(self, "primary_bone_axis")
+            body.prop(self, "secondary_bone_axis")
+            body.prop(self, "use_armature_deform_only")
+            body.prop(self, "add_leaf_bones")
 
         # Animation
-        box = layout.box()
-        box.label(text="Animation", icon="ACTION")
-        box.prop(self, "bake_anim")
-        if self.bake_anim:
-            box.prop(self, "bake_anim_use_all_bones")
-            box.prop(self, "bake_anim_use_nla_strips")
-            box.prop(self, "bake_anim_use_all_actions")
-            box.prop(self, "bake_anim_force_startend_keying")
-            box.prop(self, "bake_anim_step")
-            box.prop(self, "bake_anim_simplify_factor")
+        header, body = layout.panel(
+            "export_scene_fbx_bundle_animation", default_closed=True
+        )
+        header.label(text="Animation")
+        if body:
+            body.prop(self, "bake_anim")
+            if self.bake_anim:
+                body.prop(self, "bake_anim_use_all_bones")
+                body.prop(self, "bake_anim_use_nla_strips")
+                body.prop(self, "bake_anim_use_all_actions")
+                body.prop(self, "bake_anim_force_startend_keying")
+                body.prop(self, "bake_anim_step")
+                body.prop(self, "bake_anim_simplify_factor")
 
         # Path (hidden in batch mode, path settings are set automatically)
         if self.batch_by == "OFF":
-            box = layout.box()
-            box.label(text="Path", icon="FILE_FOLDER")
-            box.prop(self, "path_mode")
-            box.prop(self, "embed_textures")
-            box.prop(self, "batch_mode")
-            if self.batch_mode != "OFF":
-                box.prop(self, "use_batch_own_dir")
+            header, body = layout.panel(
+                "export_scene_fbx_bundle_path", default_closed=True
+            )
+            header.label(text="Path")
+            if body:
+                body.prop(self, "path_mode")
+                body.prop(self, "embed_textures")
 
     def execute(self, context):
         if self.batch_by != "OFF":
@@ -631,8 +659,8 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             "bake_anim_simplify_factor": self.bake_anim_simplify_factor,
             "path_mode": path_mode,
             "embed_textures": self.embed_textures,
-            "batch_mode": self.batch_mode,
-            "use_batch_own_dir": self.use_batch_own_dir,
+            "batch_mode": "OFF",
+            "use_batch_own_dir": False,
         }
 
         # Run the built-in FBX export
