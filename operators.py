@@ -13,6 +13,15 @@ from bpy_extras.io_utils import ExportHelper
 from . import scale_check, textures
 
 
+def _on_preset_update(self, context):
+    """Update callback for preset_enum: apply selected preset to the operator."""
+    from . import presets
+
+    preset_func = presets.PRESETS.get(self.preset_enum)
+    if preset_func:
+        preset_func(self)
+
+
 class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
     """Export FBX with textures bundled in a companion folder"""
 
@@ -106,7 +115,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             ("BLENDER", "Blender", "Settings for re-importing into Blender"),
         ],
         default="CUSTOM",
-        update=lambda self, ctx: self._apply_preset(),
+        update=_on_preset_update,
     )
 
     # --- Include ---
@@ -459,11 +468,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
 
     def _apply_preset(self):
         """Apply settings from the selected preset."""
-        from . import presets
-
-        preset_func = presets.PRESETS.get(self.preset_enum)
-        if preset_func:
-            preset_func(self)
+        _on_preset_update(self, None)
 
     def draw(self, context):
         layout = self.layout
@@ -539,8 +544,6 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             body.prop(self, "apply_scale_options")
             body.prop(self, "axis_forward")
             body.prop(self, "axis_up")
-            body.prop(self, "apply_unit_scale")
-            body.prop(self, "use_space_transform")
 
         # Geometry
         header, body = layout.panel(
@@ -549,9 +552,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         header.label(text="Geometry")
         if body:
             body.prop(self, "mesh_smooth_type")
-            body.prop(self, "use_subsurf")
             body.prop(self, "use_mesh_modifiers")
-            body.prop(self, "use_mesh_edges")
             body.prop(self, "use_triangles")
             body.prop(self, "use_tspace")
             body.prop(self, "colors_type")
@@ -589,8 +590,14 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             )
             header.label(text="Path")
             if body:
-                body.prop(self, "path_mode")
-                body.prop(self, "embed_textures")
+                # Path mode is overridden to RELATIVE when Export Textures is on
+                row = body.row()
+                row.enabled = not self.export_textures
+                row.prop(self, "path_mode")
+                # Embed textures is counterproductive when texture bundling is on
+                row = body.row()
+                row.enabled = not self.export_textures
+                row.prop(self, "embed_textures")
 
     def execute(self, context):
         if self.batch_by != "OFF":
@@ -637,12 +644,12 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             "apply_scale_options": self.apply_scale_options,
             "axis_forward": self.axis_forward,
             "axis_up": self.axis_up,
-            "apply_unit_scale": self.apply_unit_scale,
-            "use_space_transform": self.use_space_transform,
+            "apply_unit_scale": True,
+            "use_space_transform": True,
             "mesh_smooth_type": self.mesh_smooth_type,
-            "use_subsurf": self.use_subsurf,
+            "use_subsurf": False,
             "use_mesh_modifiers": self.use_mesh_modifiers,
-            "use_mesh_edges": self.use_mesh_edges,
+            "use_mesh_edges": False,
             "use_triangles": self.use_triangles,
             "use_tspace": self.use_tspace,
             "colors_type": self.colors_type,
@@ -759,12 +766,12 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                 "apply_scale_options": self.apply_scale_options,
                 "axis_forward": self.axis_forward,
                 "axis_up": self.axis_up,
-                "apply_unit_scale": self.apply_unit_scale,
-                "use_space_transform": self.use_space_transform,
+                "apply_unit_scale": True,
+                "use_space_transform": True,
                 "mesh_smooth_type": self.mesh_smooth_type,
-                "use_subsurf": self.use_subsurf,
+                "use_subsurf": False,
                 "use_mesh_modifiers": self.use_mesh_modifiers,
-                "use_mesh_edges": self.use_mesh_edges,
+                "use_mesh_edges": False,
                 "use_triangles": self.use_triangles,
                 "use_tspace": self.use_tspace,
                 "colors_type": self.colors_type,
