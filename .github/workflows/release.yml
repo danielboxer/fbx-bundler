@@ -8,7 +8,7 @@ on:
       - blender_manifest.toml
 
 env:
-  ADDON_NAME: "FBX Bundler"
+  ADDON_NAME: "FBX_Bundler"
   INCLUDED_FILES: "src LICENSE __init__.py blender_manifest.toml"
 
 jobs:
