@@ -6,7 +6,7 @@ import bpy
 from . import texture_processing
 
 
-def remap_image_paths(objects, tex_dir, preserve_structure=False):
+def remap_image_paths(objects, tex_dir, preserve_structure=False, texture_root=""):
     """
     Temporarily remap image filepaths so the FBX exporter writes paths
     pointing to the texture folder. Returns a dict of {image: original_filepath}
@@ -32,7 +32,7 @@ def remap_image_paths(objects, tex_dir, preserve_structure=False):
         elif img.filepath:
             abs_path = bpy.path.abspath(img.filepath)
             if preserve_structure:
-                rel = _get_relative_texture_path(abs_path)
+                rel = _get_relative_texture_path(abs_path, texture_root)
                 img.filepath_raw = os.path.join(tex_dir, rel)
             else:
                 filename = os.path.basename(abs_path)
@@ -53,6 +53,7 @@ def collect_and_copy_textures(
     preserve_structure=False,
     processing_settings=None,
     report_fn=None,
+    texture_root="",
 ):
     """
     Collect all texture image files from materials on the given objects
@@ -66,6 +67,8 @@ def collect_and_copy_textures(
                            max_resolution, jpeg_quality). None for straight copy.
         report_fn: Optional callable matching bpy.types.Operator.report signature,
                    used to emit warnings (e.g. duplicate texture name conflicts).
+        texture_root: Root directory to compute relative paths from when
+                      preserve_structure is True. Falls back to blend file directory.
 
     Returns the number of textures copied.
     """
@@ -85,7 +88,7 @@ def collect_and_copy_textures(
 
         # Determine destination path
         if preserve_structure and not is_packed:
-            rel_path = _get_relative_texture_path(src_path)
+            rel_path = _get_relative_texture_path(src_path, texture_root)
             dst_path = os.path.join(destination_dir, rel_path)
         else:
             dst_path = os.path.join(destination_dir, os.path.basename(src_path))
@@ -128,20 +131,27 @@ def collect_and_copy_textures(
     return copied
 
 
-def _get_relative_texture_path(abs_path):
+def _get_relative_texture_path(abs_path, texture_root=""):
     """
     Get a relative path for preserving folder structure.
-    Uses the blend file location as the base, or falls back to filename only.
+    Uses texture_root if provided, otherwise falls back to the blend file directory.
+    Returns just the filename if the texture is outside the root.
     """
-    blend_path = bpy.data.filepath
-    if blend_path:
-        blend_dir = os.path.dirname(blend_path)
+    # Prefer the user-supplied root, then the blend file directory
+    root = bpy.path.abspath(texture_root) if texture_root else ""
+    if not root or not os.path.isdir(root):
+        blend_path = bpy.data.filepath
+        root = os.path.dirname(blend_path) if blend_path else ""
+
+    if root:
         try:
-            rel = os.path.relpath(abs_path, blend_dir)
-            # Only use relative path if it doesn't go too far up
-            if not rel.startswith("..\\..\\..") and not rel.startswith("../../../"):
+            rel = os.path.relpath(abs_path, root)
+            # Only keep the relative path if the texture is inside the root
+            # (i.e. the path does not escape via ..)
+            if not rel.startswith(".."):
                 return rel
         except ValueError:
+            # Different drive on Windows
             pass
 
     return os.path.basename(abs_path)

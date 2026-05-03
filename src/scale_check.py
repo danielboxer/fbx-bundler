@@ -1,4 +1,3 @@
-import bpy
 from mathutils import Vector
 
 
@@ -45,7 +44,6 @@ def check_scale(objects, global_scale=1.0, report_func=None):
     # Apply global scale to get final exported dimensions
     final_dims = dimensions * global_scale
 
-    height = final_dims.z
     max_dim = max(final_dims.x, final_dims.y, final_dims.z)
 
     # Check for common scale issues

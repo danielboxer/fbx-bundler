@@ -57,6 +57,12 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         default=False,
     )
 
+    texture_root: StringProperty(
+        name="Texture Root",
+        description="Root folder to compute relative texture paths from when Preserve Folder Structure is on. Leave blank to use the blend file's directory. Type or paste an absolute path",
+        default="",
+    )
+
     # --- Texture Processing ---
 
     convert_textures: BoolProperty(
@@ -123,7 +129,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
     use_selection: BoolProperty(
         name="Selected Objects",
         description="Export selected objects only",
-        default=False,
+        default=True,
     )
 
     use_visible: BoolProperty(
@@ -505,6 +511,8 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             if self.export_textures:
                 body.prop(self, "texture_folder_name")
                 body.prop(self, "preserve_texture_structure")
+                if self.preserve_texture_structure:
+                    body.prop(self, "texture_root")
                 body.separator()
                 body.prop(self, "convert_textures")
                 if self.convert_textures:
@@ -626,7 +634,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         if self.export_textures:
             tex_dir = os.path.join(export_dir, self.texture_folder_name)
             original_paths = textures.remap_image_paths(
-                objects, tex_dir, self.preserve_texture_structure
+                objects, tex_dir, self.preserve_texture_structure, self.texture_root
             )
 
         # Use relative path mode when bundling so the FBX stores
@@ -702,6 +710,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                 self.preserve_texture_structure,
                 processing,
                 self.report,
+                self.texture_root,
             )
             if copied > 0:
                 self.report({"INFO"}, f"Copied {copied} texture(s) to: {tex_dir}")
@@ -756,7 +765,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             original_paths = {}
             if self.export_textures:
                 original_paths = textures.remap_image_paths(
-                    objects, tex_dir, self.preserve_texture_structure
+                    objects, tex_dir, self.preserve_texture_structure, self.texture_root
                 )
 
             kwargs = {
@@ -809,6 +818,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                         self.preserve_texture_structure,
                         processing,
                         self.report,
+                        self.texture_root,
                     )
 
         self.report({"INFO"}, f"Batch exported {exported} FBX file(s) to: {output_dir}")
