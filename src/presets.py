@@ -16,6 +16,7 @@ def apply_unity(op):
     op.mesh_smooth_type = "FACE"
     op.use_subsurf = False
     op.use_mesh_modifiers = True
+    op.use_triangles = True
     op.use_tspace = True
     op.primary_bone_axis = "Y"
     op.secondary_bone_axis = "X"
@@ -31,6 +32,8 @@ def apply_unity(op):
     op.path_mode = "AUTO"
     op.embed_textures = False
     op.batch_mode = "OFF"
+    op.pack_unity_mask_map = True
+    op.exclude_packed_pbr_sources = True
 
 
 def apply_unreal(op):
@@ -44,6 +47,7 @@ def apply_unreal(op):
     op.mesh_smooth_type = "FACE"
     op.use_subsurf = False
     op.use_mesh_modifiers = True
+    op.use_triangles = True
     op.use_tspace = True
     op.primary_bone_axis = "Y"
     op.secondary_bone_axis = "X"
@@ -72,6 +76,7 @@ def apply_godot(op):
     op.mesh_smooth_type = "FACE"
     op.use_subsurf = False
     op.use_mesh_modifiers = True
+    op.use_triangles = True
     op.use_tspace = False
     op.primary_bone_axis = "Y"
     op.secondary_bone_axis = "X"

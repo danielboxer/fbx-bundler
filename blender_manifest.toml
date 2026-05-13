@@ -2,7 +2,7 @@
 schema_version = "1.0.0"
 
 id = "fbx_bundler"
-version = "0.1.1"
+version = "0.2.0"
 name = "FBX Bundler"
 tagline = "Export FBX with textures bundled in a companion folder"
 maintainer = "Daniel Boxer <dani3lb0x3r@gmail.com>"

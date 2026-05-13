@@ -47,6 +47,39 @@ def restore_image_paths(original_paths):
         img.filepath_raw = path
 
 
+def generate_unity_mask_maps(objects, destination_dir, report_fn=None):
+    """
+    For each unique material on the given objects, generate a Unity mask map
+    (R=Metallic, G=AO, B=0, A=Smoothness) from its Principled BSDF inputs
+    and save it to a 'unity_packed' subfolder inside destination_dir.
+
+    Only materials with at least a metallic or roughness texture produce a
+    mask map. Returns (count, consumed_images) where count is the number of
+    mask maps written and consumed_images is the set of bpy.types.Image objects
+    that were packed (useful for excluding them from the normal texture copy).
+    """
+    import os
+
+    packed_dir = os.path.join(destination_dir, "unity_packed")
+    seen = set()
+    count = 0
+    all_consumed = set()
+
+    for obj in objects:
+        if not hasattr(obj, "data") or not hasattr(obj.data, "materials"):
+            continue
+        for mat in obj.data.materials:
+            if mat is None or mat.name in seen:
+                continue
+            seen.add(mat.name)
+            consumed, out_path = texture_processing.pack_unity_mask_map(mat, packed_dir)
+            if out_path:
+                count += 1
+                all_consumed.update(consumed)
+
+    return count, all_consumed
+
+
 def collect_and_copy_textures(
     objects,
     destination_dir,
@@ -54,6 +87,7 @@ def collect_and_copy_textures(
     processing_settings=None,
     report_fn=None,
     texture_root="",
+    exclude_images=None,
 ):
     """
     Collect all texture image files from materials on the given objects
@@ -69,10 +103,12 @@ def collect_and_copy_textures(
                    used to emit warnings (e.g. duplicate texture name conflicts).
         texture_root: Root directory to compute relative paths from when
                       preserve_structure is True. Falls back to blend file directory.
+        exclude_images: Optional set of bpy.types.Image objects to skip (e.g.
+                        images already packed into a mask map).
 
     Returns the number of textures copied.
     """
-    image_data = _gather_image_data(objects)
+    image_data = _gather_image_data(objects, exclude_images=exclude_images)
 
     if not image_data:
         return 0
@@ -157,10 +193,12 @@ def _get_relative_texture_path(abs_path, texture_root=""):
     return os.path.basename(abs_path)
 
 
-def _gather_image_data(objects):
+def _gather_image_data(objects, exclude_images=None):
     """
     Walk all materials on the given objects and collect (absolute_path, is_packed)
     tuples for all image textures used in shader node trees.
+
+    exclude_images: optional set of bpy.types.Image objects to omit.
     """
     images = set()
 
@@ -172,6 +210,10 @@ def _gather_image_data(objects):
             if mat is None:
                 continue
             _collect_images_from_material(mat, images)
+
+    # Drop any images that were already handled separately (e.g. packed into a mask map)
+    if exclude_images:
+        images -= exclude_images
 
     results = set()
     for img in images:

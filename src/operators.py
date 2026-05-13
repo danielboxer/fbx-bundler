@@ -63,6 +63,26 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         default="",
     )
 
+    pack_unity_mask_map: BoolProperty(
+        name="Pack Unity Mask Map",
+        description=(
+            "Generate a channel-packed mask map for Unity URP Lit: "
+            "R=Metallic, G=AO, B=unused, A=Smoothness (inverted Roughness). "
+            "Requires textures connected to the Principled BSDF Metallic or "
+            "Roughness inputs. AO is detected by name (_ao, _occ, _ambient, _occlusion)"
+        ),
+        default=False,
+    )
+
+    exclude_packed_pbr_sources: BoolProperty(
+        name="Exclude Source PBR Textures",
+        description=(
+            "Skip copying the individual Metallic, Roughness, and AO textures "
+            "that were packed into the mask map. Only the mask map is exported for those channels"
+        ),
+        default=True,
+    )
+
     # --- Texture Processing ---
 
     convert_textures: BoolProperty(
@@ -514,6 +534,10 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                 if self.preserve_texture_structure:
                     body.prop(self, "texture_root")
                 body.separator()
+                body.prop(self, "pack_unity_mask_map")
+                if self.pack_unity_mask_map:
+                    body.prop(self, "exclude_packed_pbr_sources")
+                body.separator()
                 body.prop(self, "convert_textures")
                 if self.convert_textures:
                     body.prop(self, "convert_format")
@@ -704,6 +728,20 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                     "jpeg_quality": self.jpeg_quality,
                 }
 
+            # Generate Unity mask maps and collect source images to exclude if requested
+            exclude_images = set()
+            if self.pack_unity_mask_map:
+                mask_count, consumed = textures.generate_unity_mask_maps(
+                    objects, tex_dir, self.report
+                )
+                if mask_count > 0:
+                    self.report(
+                        {"INFO"},
+                        f"Generated {mask_count} Unity mask map(s) in: {tex_dir}",
+                    )
+                if self.exclude_packed_pbr_sources:
+                    exclude_images = consumed
+
             copied = textures.collect_and_copy_textures(
                 objects,
                 tex_dir,
@@ -711,6 +749,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                 processing,
                 self.report,
                 self.texture_root,
+                exclude_images=exclude_images,
             )
             if copied > 0:
                 self.report({"INFO"}, f"Copied {copied} texture(s) to: {tex_dir}")
@@ -812,6 +851,15 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
 
                 # Copy textures to the companion folder for this group
                 if self.export_textures:
+                    # Generate Unity mask maps first, collect source images to exclude if requested
+                    exclude_images = set()
+                    if self.pack_unity_mask_map:
+                        _mask_count, consumed = textures.generate_unity_mask_maps(
+                            objects, tex_dir, self.report
+                        )
+                        if self.exclude_packed_pbr_sources:
+                            exclude_images = consumed
+
                     textures.collect_and_copy_textures(
                         objects,
                         tex_dir,
@@ -819,6 +867,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
                         processing,
                         self.report,
                         self.texture_root,
+                        exclude_images=exclude_images,
                     )
 
         self.report({"INFO"}, f"Batch exported {exported} FBX file(s) to: {output_dir}")
