@@ -6,11 +6,36 @@ import bpy
 from . import texture_processing
 
 
-def remap_image_paths(objects, tex_dir, preserve_structure=False, texture_root=""):
+def bundled_relative_path(img, preserve_structure, texture_root, processing_settings):
+    """
+    Path, relative to the texture folder, where this image is bundled. Shared by
+    the FBX path remap and the copy step so the FBX references and the files on
+    disk are always named the same, including any extension change from
+    conversion or resize.
+    """
+    if img.packed_file:
+        rel = bpy.path.clean_name(img.name) + _get_image_extension(img)
+    else:
+        abs_path = bpy.path.abspath(img.filepath)
+        if preserve_structure:
+            rel = _get_relative_texture_path(abs_path, texture_root)
+        else:
+            rel = os.path.basename(abs_path)
+
+    ext = texture_processing.output_extension(rel, processing_settings)
+    return os.path.splitext(rel)[0] + ext
+
+
+def remap_image_paths(
+    objects, tex_dir, preserve_structure=False, texture_root="", processing_settings=None
+):
     """
     Temporarily remap image filepaths so the FBX exporter writes paths
     pointing to the texture folder. Returns a dict of {image: original_filepath}
     for restoration after export.
+
+    processing_settings must match what collect_and_copy_textures receives so the
+    FBX references land on the same filenames the bundled files get.
     """
     images = set()
     for obj in objects:
@@ -23,20 +48,13 @@ def remap_image_paths(objects, tex_dir, preserve_structure=False, texture_root="
 
     original_paths = {}
     for img in images:
+        if not img.packed_file and not img.filepath:
+            continue
         original_paths[img] = img.filepath_raw
-
-        if img.packed_file:
-            ext = _get_image_extension(img)
-            safe_name = bpy.path.clean_name(img.name)
-            img.filepath_raw = os.path.join(tex_dir, f"{safe_name}{ext}")
-        elif img.filepath:
-            abs_path = bpy.path.abspath(img.filepath)
-            if preserve_structure:
-                rel = _get_relative_texture_path(abs_path, texture_root)
-                img.filepath_raw = os.path.join(tex_dir, rel)
-            else:
-                filename = os.path.basename(abs_path)
-                img.filepath_raw = os.path.join(tex_dir, filename)
+        rel = bundled_relative_path(
+            img, preserve_structure, texture_root, processing_settings
+        )
+        img.filepath_raw = os.path.join(tex_dir, rel)
 
     return original_paths
 
@@ -118,16 +136,14 @@ def collect_and_copy_textures(
     copied = 0
     # Track destination -> source to detect name collisions across different source files
     copied_destinations = {}
-    for src_path, is_packed in image_data:
+    for img, src_path in image_data:
         if not os.path.isfile(src_path):
             continue
 
-        # Determine destination path
-        if preserve_structure and not is_packed:
-            rel_path = _get_relative_texture_path(src_path, texture_root)
-            dst_path = os.path.join(destination_dir, rel_path)
-        else:
-            dst_path = os.path.join(destination_dir, os.path.basename(src_path))
+        rel_path = bundled_relative_path(
+            img, preserve_structure, texture_root, processing_settings
+        )
+        dst_path = os.path.join(destination_dir, rel_path)
 
         # Create subdirectories if preserving structure
         dst_dir = os.path.dirname(dst_path)
@@ -195,8 +211,9 @@ def _get_relative_texture_path(abs_path, texture_root=""):
 
 def _gather_image_data(objects, exclude_images=None):
     """
-    Walk all materials on the given objects and collect (absolute_path, is_packed)
-    tuples for all image textures used in shader node trees.
+    Walk all materials on the given objects and collect (image, source_path)
+    tuples for all image textures used in shader node trees. source_path is the
+    file to read bytes from (a temp file for packed images).
 
     exclude_images: optional set of bpy.types.Image objects to omit.
     """
@@ -220,11 +237,11 @@ def _gather_image_data(objects, exclude_images=None):
         if img.packed_file:
             path = _save_packed_image(img)
             if path:
-                results.add((path, True))
+                results.add((img, path))
         elif img.filepath:
             abs_path = bpy.path.abspath(img.filepath)
             if abs_path and os.path.isfile(abs_path):
-                results.add((abs_path, False))
+                results.add((img, abs_path))
 
     return results
 
@@ -233,17 +250,11 @@ def _collect_images_from_material(material, images):
     """Collect Image datablocks from a material's node tree."""
     if not material.use_nodes or not material.node_tree:
         return
-
-    for node in material.node_tree.nodes:
-        if node.type == "TEX_IMAGE" and node.image:
-            images.add(node.image)
-        # Handle node groups recursively
-        elif node.type == "GROUP" and node.node_tree:
-            _collect_images_from_node_tree(node.node_tree, images)
+    _collect_images_from_node_tree(material.node_tree, images)
 
 
 def _collect_images_from_node_tree(node_tree, images):
-    """Recursively collect images from a node tree (for node groups)."""
+    """Recursively collect images from a node tree, descending into node groups."""
     for node in node_tree.nodes:
         if node.type == "TEX_IMAGE" and node.image:
             images.add(node.image)

@@ -164,14 +164,8 @@ def process_textures(src_path, dst_path, settings):
                 temp_img.scale(new_w, new_h)
 
         # Determine output format and extension
-        if convert_format and convert_format != "ORIGINAL":
-            out_format = convert_format
-        else:
-            out_format = _detect_format(src_path)
-
-        ext = FORMAT_EXTENSIONS.get(out_format, os.path.splitext(src_path)[1])
-        dst_base = os.path.splitext(dst_path)[0]
-        final_dst = dst_base + ext
+        out_format = _output_format(src_path, settings)
+        final_dst = os.path.splitext(dst_path)[0] + output_extension(src_path, settings)
 
         # Configure render settings for save
         scene = bpy.context.scene
@@ -206,6 +200,36 @@ def _detect_format(filepath):
     """Detect image format from file extension."""
     ext = os.path.splitext(filepath)[1].lower()
     return EXTENSION_FORMATS.get(ext, "PNG")
+
+
+def _needs_processing(settings):
+    """Whether the given settings change the file (convert and/or resize)."""
+    if not settings:
+        return False
+    convert_format = settings.get("convert_format")
+    max_resolution = settings.get("max_resolution", 0)
+    return (convert_format and convert_format != "ORIGINAL") or max_resolution > 0
+
+
+def _output_format(source_path, settings):
+    """Blender image format the source will be written as."""
+    convert_format = settings.get("convert_format") if settings else None
+    if convert_format and convert_format != "ORIGINAL":
+        return convert_format
+    return _detect_format(source_path)
+
+
+def output_extension(source_path, settings):
+    """
+    Final file extension a bundled texture ends up with after process_textures.
+    Returns the source extension unchanged when no processing alters it. This is
+    the single authority both the copy step and the FBX path remap rely on so
+    the written files and the FBX references cannot drift apart.
+    """
+    if not _needs_processing(settings):
+        return os.path.splitext(source_path)[1]
+    out_format = _output_format(source_path, settings)
+    return FORMAT_EXTENSIONS.get(out_format, os.path.splitext(source_path)[1])
 
 
 FORMAT_EXTENSIONS = {
