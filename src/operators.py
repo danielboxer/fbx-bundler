@@ -17,9 +17,7 @@ def _on_preset_update(self, context):
     """Update callback for preset_enum: apply selected preset to the operator."""
     from . import presets
 
-    preset_func = presets.PRESETS.get(self.preset_enum)
-    if preset_func:
-        preset_func(self)
+    presets.apply_preset(self, self.preset_enum)
 
 
 class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
@@ -431,27 +429,6 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         default=False,
     )
 
-    batch_mode: EnumProperty(
-        name="Batch Mode",
-        description="Export in batch mode",
-        items=[
-            ("OFF", "Off", "Active scene to file"),
-            ("SCENE", "Scene", "Each scene as a file"),
-            ("COLLECTION", "Collection", "Each scene collection as a file"),
-            (
-                "SCENE_COLLECTION",
-                "Scene Collections",
-                "Each collection of each scene as a file",
-            ),
-            (
-                "ACTIVE_SCENE_COLLECTION",
-                "Active Scene Collections",
-                "Each collection of the active scene as a file",
-            ),
-        ],
-        default="OFF",
-    )
-
     use_batch_own_dir: BoolProperty(
         name="Batch Own Dir",
         description="Create a directory for each exported file in batch mode",
@@ -636,41 +613,35 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             return self._execute_batch(context)
         return self._execute_single(context)
 
-    def _execute_single(self, context):
-        filepath = self.filepath
+    def _processing_settings(self):
+        """Texture processing settings, or None when conversion is disabled."""
+        if not self.convert_textures:
+            return None
+        return {
+            "convert_format": self.convert_format,
+            "max_resolution": self.max_texture_resolution,
+            "jpeg_quality": self.jpeg_quality,
+        }
 
-        # If the user clicked Export while inside a directory without typing a filename,
-        # default to Untitled.fbx in that directory
-        if not filepath or os.path.isdir(filepath) or not os.path.basename(filepath):
-            filepath = os.path.join(filepath.rstrip("\\/"), "Untitled.fbx")
-
-        export_dir = os.path.dirname(filepath)
-
-        objects = self._get_export_objects(context)
-
-        # Scale verification
-        if self.verify_scale:
-            scale_check.check_scale(objects, self.global_scale, self.report)
-
-        # When bundling textures, remap image paths to the texture folder
-        # before export so the FBX contains correct relative references
-        original_paths = {}
-        if self.export_textures:
-            tex_dir = os.path.join(export_dir, self.texture_folder_name)
-            original_paths = textures.remap_image_paths(
-                objects, tex_dir, self.preserve_texture_structure, self.texture_root
-            )
-
-        # Use relative path mode when bundling so the FBX stores
-        # paths like "textures/albedo.png"
-        path_mode = "RELATIVE" if self.export_textures else self.path_mode
-
-        # Build kwargs for the built-in FBX exporter
-        kwargs = {
+    def _fbx_export_kwargs(
+        self,
+        filepath,
+        path_mode,
+        *,
+        use_selection,
+        use_visible,
+        use_active_collection,
+        embed_textures,
+    ):
+        """
+        Argument dict for the built-in FBX exporter. Native batch_mode is always
+        off; this addon does its own batching.
+        """
+        return {
             "filepath": filepath,
-            "use_selection": self.use_selection,
-            "use_visible": self.use_visible,
-            "use_active_collection": self.use_active_collection,
+            "use_selection": use_selection,
+            "use_visible": use_visible,
+            "use_active_collection": use_active_collection,
             "object_types": self.object_types,
             "global_scale": self.global_scale,
             "apply_scale_options": self.apply_scale_options,
@@ -697,10 +668,54 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             "bake_anim_step": self.bake_anim_step,
             "bake_anim_simplify_factor": self.bake_anim_simplify_factor,
             "path_mode": path_mode,
-            "embed_textures": self.embed_textures,
+            "embed_textures": embed_textures,
             "batch_mode": "OFF",
             "use_batch_own_dir": False,
         }
+
+    def _execute_single(self, context):
+        filepath = self.filepath
+
+        # If the user clicked Export while inside a directory without typing a filename,
+        # default to Untitled.fbx in that directory
+        if not filepath or os.path.isdir(filepath) or not os.path.basename(filepath):
+            filepath = os.path.join(filepath.rstrip("\\/"), "Untitled.fbx")
+
+        export_dir = os.path.dirname(filepath)
+
+        objects = self._get_export_objects(context)
+
+        # Scale verification
+        if self.verify_scale:
+            scale_check.check_scale(objects, self.global_scale, self.report)
+
+        # When bundling textures, remap image paths to the texture folder
+        # before export so the FBX contains correct relative references
+        processing = self._processing_settings()
+
+        original_paths = {}
+        if self.export_textures:
+            tex_dir = os.path.join(export_dir, self.texture_folder_name)
+            original_paths = textures.remap_image_paths(
+                objects,
+                tex_dir,
+                self.preserve_texture_structure,
+                self.texture_root,
+                processing,
+            )
+
+        # Use relative path mode when bundling so the FBX stores
+        # paths like "textures/albedo.png"
+        path_mode = "RELATIVE" if self.export_textures else self.path_mode
+
+        kwargs = self._fbx_export_kwargs(
+            filepath,
+            path_mode,
+            use_selection=self.use_selection,
+            use_visible=self.use_visible,
+            use_active_collection=self.use_active_collection,
+            embed_textures=self.embed_textures,
+        )
 
         # Run the built-in FBX export
         result = bpy.ops.export_scene.fbx(**kwargs)
@@ -718,15 +733,6 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
         # Copy textures to the companion folder
         if self.export_textures:
             tex_dir = os.path.join(export_dir, self.texture_folder_name)
-
-            # Build processing settings
-            processing = None
-            if self.convert_textures:
-                processing = {
-                    "convert_format": self.convert_format,
-                    "max_resolution": self.max_texture_resolution,
-                    "jpeg_quality": self.jpeg_quality,
-                }
 
             # Generate Unity mask maps and collect source images to exclude if requested
             exclude_images = set()
@@ -775,14 +781,7 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "Nothing to export")
             return {"CANCELLED"}
 
-        # Build processing settings for texture conversion
-        processing = None
-        if self.convert_textures:
-            processing = {
-                "convert_format": self.convert_format,
-                "max_resolution": self.max_texture_resolution,
-                "jpeg_quality": self.jpeg_quality,
-            }
+        processing = self._processing_settings()
 
         exported = 0
         for group_name, objects in groups.items():
@@ -804,41 +803,23 @@ class EXPORT_SCENE_OT_fbx_bundle(bpy.types.Operator, ExportHelper):
             original_paths = {}
             if self.export_textures:
                 original_paths = textures.remap_image_paths(
-                    objects, tex_dir, self.preserve_texture_structure, self.texture_root
+                    objects,
+                    tex_dir,
+                    self.preserve_texture_structure,
+                    self.texture_root,
+                    processing,
                 )
 
-            kwargs = {
-                "filepath": filepath,
-                "use_selection": True,
-                "global_scale": self.global_scale,
-                "apply_scale_options": self.apply_scale_options,
-                "axis_forward": self.axis_forward,
-                "axis_up": self.axis_up,
-                "apply_unit_scale": True,
-                "use_space_transform": True,
-                "mesh_smooth_type": self.mesh_smooth_type,
-                "use_subsurf": False,
-                "use_mesh_modifiers": self.use_mesh_modifiers,
-                "use_mesh_edges": False,
-                "use_triangles": self.use_triangles,
-                "use_tspace": self.use_tspace,
-                "colors_type": self.colors_type,
-                "primary_bone_axis": self.primary_bone_axis,
-                "secondary_bone_axis": self.secondary_bone_axis,
-                "use_armature_deform_only": self.use_armature_deform_only,
-                "add_leaf_bones": self.add_leaf_bones,
-                "bake_anim": self.bake_anim,
-                "bake_anim_use_all_bones": self.bake_anim_use_all_bones,
-                "bake_anim_use_nla_strips": self.bake_anim_use_nla_strips,
-                "bake_anim_use_all_actions": self.bake_anim_use_all_actions,
-                "bake_anim_force_startend_keying": self.bake_anim_force_startend_keying,
-                "bake_anim_step": self.bake_anim_step,
-                "bake_anim_simplify_factor": self.bake_anim_simplify_factor,
-                # Force relative paths for texture bundling, disable native batch mode
-                "path_mode": "RELATIVE" if self.export_textures else "AUTO",
-                "embed_textures": False,
-                "batch_mode": "OFF",
-            }
+            # This group's objects are already selected, so restrict to selection
+            # and skip the visible/active-collection filters.
+            kwargs = self._fbx_export_kwargs(
+                filepath,
+                "RELATIVE" if self.export_textures else "AUTO",
+                use_selection=True,
+                use_visible=False,
+                use_active_collection=False,
+                embed_textures=False,
+            )
 
             result = bpy.ops.export_scene.fbx(**kwargs)
 

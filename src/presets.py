@@ -1,134 +1,78 @@
 import bpy
 from bpy.types import Menu
 
-# Preset definitions: each function configures the operator properties
-# for optimal export to the target application.
-
-
-def apply_unity(op):
-    """Unity preset: FBX All scaling, no leaf bones, Y-up, -Z forward."""
-    op.apply_scale_options = "FBX_SCALE_ALL"
-    op.global_scale = 1.0
-    op.axis_forward = "-Z"
-    op.axis_up = "Y"
-    op.apply_unit_scale = True
-    op.use_space_transform = True
-    op.mesh_smooth_type = "FACE"
-    op.use_subsurf = False
-    op.use_mesh_modifiers = True
-    op.use_triangles = True
-    op.use_tspace = True
-    op.primary_bone_axis = "Y"
-    op.secondary_bone_axis = "X"
-    op.use_armature_deform_only = False
-    op.add_leaf_bones = False
-    op.bake_anim = True
-    op.bake_anim_use_all_bones = True
-    op.bake_anim_use_nla_strips = True
-    op.bake_anim_use_all_actions = True
-    op.bake_anim_force_startend_keying = True
-    op.bake_anim_step = 1.0
-    op.bake_anim_simplify_factor = 1.0
-    op.path_mode = "AUTO"
-    op.embed_textures = False
-    op.batch_mode = "OFF"
-    op.pack_unity_mask_map = True
-    op.exclude_packed_pbr_sources = True
-
-
-def apply_unreal(op):
-    """Unreal Engine preset: FBX Units scaling, no leaf bones, X forward, Z up."""
-    op.apply_scale_options = "FBX_SCALE_UNITS"
-    op.global_scale = 1.0
-    op.axis_forward = "X"
-    op.axis_up = "Z"
-    op.apply_unit_scale = True
-    op.use_space_transform = True
-    op.mesh_smooth_type = "FACE"
-    op.use_subsurf = False
-    op.use_mesh_modifiers = True
-    op.use_triangles = True
-    op.use_tspace = True
-    op.primary_bone_axis = "Y"
-    op.secondary_bone_axis = "X"
-    op.use_armature_deform_only = False
-    op.add_leaf_bones = False
-    op.bake_anim = True
-    op.bake_anim_use_all_bones = True
-    op.bake_anim_use_nla_strips = True
-    op.bake_anim_use_all_actions = True
-    op.bake_anim_force_startend_keying = True
-    op.bake_anim_step = 1.0
-    op.bake_anim_simplify_factor = 1.0
-    op.path_mode = "AUTO"
-    op.embed_textures = False
-    op.batch_mode = "OFF"
-
-
-def apply_godot(op):
-    """Godot preset: FBX Units scaling, Y-up, -Z forward, apply modifiers."""
-    op.apply_scale_options = "FBX_SCALE_UNITS"
-    op.global_scale = 1.0
-    op.axis_forward = "-Z"
-    op.axis_up = "Y"
-    op.apply_unit_scale = True
-    op.use_space_transform = True
-    op.mesh_smooth_type = "FACE"
-    op.use_subsurf = False
-    op.use_mesh_modifiers = True
-    op.use_triangles = True
-    op.use_tspace = False
-    op.primary_bone_axis = "Y"
-    op.secondary_bone_axis = "X"
-    op.use_armature_deform_only = False
-    op.add_leaf_bones = False
-    op.bake_anim = True
-    op.bake_anim_use_all_bones = True
-    op.bake_anim_use_nla_strips = True
-    op.bake_anim_use_all_actions = True
-    op.bake_anim_force_startend_keying = True
-    op.bake_anim_step = 1.0
-    op.bake_anim_simplify_factor = 1.0
-    op.path_mode = "AUTO"
-    op.embed_textures = False
-    op.batch_mode = "OFF"
-
-
-def apply_blender(op):
-    """Blender preset: settings for clean round-trip back into Blender."""
-    op.apply_scale_options = "FBX_SCALE_NONE"
-    op.global_scale = 1.0
-    op.axis_forward = "-Z"
-    op.axis_up = "Y"
-    op.apply_unit_scale = True
-    op.use_space_transform = True
-    op.mesh_smooth_type = "OFF"
-    op.use_subsurf = False
-    op.use_mesh_modifiers = True
-    op.use_tspace = False
-    op.primary_bone_axis = "Y"
-    op.secondary_bone_axis = "X"
-    op.use_armature_deform_only = False
-    op.add_leaf_bones = False
-    op.bake_anim = True
-    op.bake_anim_use_all_bones = True
-    op.bake_anim_use_nla_strips = True
-    op.bake_anim_use_all_actions = True
-    op.bake_anim_force_startend_keying = True
-    op.bake_anim_step = 1.0
-    op.bake_anim_simplify_factor = 0.0
-    op.path_mode = "AUTO"
-    op.embed_textures = False
-    op.batch_mode = "OFF"
-
-
-# Map preset enum values to functions
-PRESETS = {
-    "UNITY": apply_unity,
-    "UNREAL": apply_unreal,
-    "GODOT": apply_godot,
-    "BLENDER": apply_blender,
+# Operator property values applied by every preset. Per-preset overrides in
+# PRESETS are merged on top of these.
+_COMMON = {
+    "global_scale": 1.0,
+    "apply_unit_scale": True,
+    "use_space_transform": True,
+    "use_subsurf": False,
+    "use_mesh_modifiers": True,
+    "primary_bone_axis": "Y",
+    "secondary_bone_axis": "X",
+    "use_armature_deform_only": False,
+    "add_leaf_bones": False,
+    "bake_anim": True,
+    "bake_anim_use_all_bones": True,
+    "bake_anim_use_nla_strips": True,
+    "bake_anim_use_all_actions": True,
+    "bake_anim_force_startend_keying": True,
+    "bake_anim_step": 1.0,
+    "path_mode": "AUTO",
+    "embed_textures": False,
 }
+
+# Per-preset overrides for exporting to a target application.
+PRESETS = {
+    "UNITY": {
+        "apply_scale_options": "FBX_SCALE_ALL",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "mesh_smooth_type": "FACE",
+        "use_triangles": True,
+        "use_tspace": True,
+        "bake_anim_simplify_factor": 1.0,
+        "pack_unity_mask_map": True,
+        "exclude_packed_pbr_sources": True,
+    },
+    "UNREAL": {
+        "apply_scale_options": "FBX_SCALE_UNITS",
+        "axis_forward": "X",
+        "axis_up": "Z",
+        "mesh_smooth_type": "FACE",
+        "use_triangles": True,
+        "use_tspace": True,
+        "bake_anim_simplify_factor": 1.0,
+    },
+    "GODOT": {
+        "apply_scale_options": "FBX_SCALE_UNITS",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "mesh_smooth_type": "FACE",
+        "use_triangles": True,
+        "use_tspace": False,
+        "bake_anim_simplify_factor": 1.0,
+    },
+    "BLENDER": {
+        "apply_scale_options": "FBX_SCALE_NONE",
+        "axis_forward": "-Z",
+        "axis_up": "Y",
+        "mesh_smooth_type": "OFF",
+        "use_triangles": False,
+        "use_tspace": False,
+        "bake_anim_simplify_factor": 0.0,
+    },
+}
+
+
+def apply_preset(op, name):
+    """Apply a named preset's settings to the operator. Unknown names are ignored."""
+    overrides = PRESETS.get(name)
+    if overrides is None:
+        return
+    for field, value in {**_COMMON, **overrides}.items():
+        setattr(op, field, value)
 
 
 # Blender preset menu (allows saving/loading custom presets via the preset system)
